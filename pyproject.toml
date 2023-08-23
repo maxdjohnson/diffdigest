@@ -7,6 +7,9 @@ readme = "README.md"
 keywords = ["git", "commit", "summarize", "llm", "gpt-3", "gpt-3.5", "embedding", "clustering"]
 authors = ["Max Johnson <maxdjohnson@gmail.com>"]
 
+[tool.poetry.scripts]
+diffdigest = "diffdigest.cli:main"
+
 [tool.poetry.dependencies]
 python = "^3.9"
 GitPython = "^3.1.32"
