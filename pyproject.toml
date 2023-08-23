@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "diffdigest"
+version = "0.1.0"
+description = "Generate commit messages from git diffs of any size using LLMs to cluster and summarize"
+license = "MIT"
+readme = "README.md"
+keywords = ["git", "commit", "summarize", "llm", "gpt-3", "gpt-3.5", "embedding", "clustering"]
+authors = ["Max Johnson <maxdjohnson@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
