@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime
 from io import StringIO
@@ -18,23 +19,21 @@ from git import Repo
 from k_means_constrained import KMeansConstrained
 from unidiff import PatchSet
 
-# Set up environment
-dotenv.load_dotenv()
-assert len(os.getenv("OPENAI_API_KEY", "")) > 0
-openai.api_key = os.getenv("OPENAI_API_KEY")
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-RE_WHITESPACE = re.compile(r"\s+")
 BIN_NAME = "diffdigest"
 XDG_STATE_HOME = Path(
     os.environ.get("XDG_STATE_HOME") or os.path.join(os.environ["HOME"], ".local", "state")
 )
+XDG_CONFIG_HOME = Path(
+    os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.environ["HOME"], ".config")
+)
+
+RE_WHITESPACE = re.compile(r"\s+")
 TOKEN_ENCODER = tiktoken.get_encoding("cl100k_base")
 EMBEDDING_TOKEN_LIMIT = 8191
 LLM_TOKEN_LIMIT = 4096
 RESPONSE_TOKEN_ALLOWANCE = 150
 
-
+# Prompts
 PROMPT_SYSTEM = """
 You are an expert software engineer contributing to a large open-source project.
 Do not use vague language like "improve usability", "logic improvements", or "enhance functionality".
@@ -62,49 +61,61 @@ The body should summarize a few of the most relevant technical details.
 
 
 def main():
+    # Set up environment
+    config_path = XDG_CONFIG_HOME / BIN_NAME / f"{BIN_NAME}.env"
+    dotenv.load_dotenv(config_path)
+    if os.getenv("OPENAI_API_KEY", "") == "":
+        sys.exit("OPENAI_API_KEY not set. Please set in the environment, or in " + str(config_path))
+    openai.api_key = os.getenv("OPENAI_API_KEY")
+
     os.makedirs(XDG_STATE_HOME / BIN_NAME, exist_ok=True)
     init_logging(XDG_STATE_HOME / BIN_NAME / "log.jsonl")
 
     parser = argparse.ArgumentParser(description="Generate a commit message using GPT-3.5.")
-    parser.add_argument("repo", help="Path to the Git repository")
+    parser.add_argument("repo", help="Path to the Git repository", nargs="?", default=".")
+    parser.add_argument("--ref", "-r", help="Git ref to use, otherwise uses working directory")
     parser.add_argument(
-        "--commit", "-c", help="Git commit to use, otherwise uses working directory"
-    )
-    parser.add_argument(
-        "--auto",
-        "-a",
+        "--commit",
+        "-c",
         help="Automatically commit the changes to the repo",
         action="store_true",
     )
 
     args = parser.parse_args()
-    if args.auto and args.commit is not None:
-        sys.exit("Cannot specify --auto and --commit at the same time")
+    if args.commit and args.ref is not None:
+        sys.exit("Cannot specify --commit and --ref at the same time")
 
-    diff_text = get_diff(args.repo, args.commit)
+    diff_text = get_diff(args.repo, args.ref)
     if diff_text.strip() == "":
         sys.exit("Empty diff")
     diffs = split_diff(diff_text)
     summaries = [summarize_diff(diff) for diff in diffs]
     # TODO sort summaries so that the most relevant (code) ones are first
     commit_message = generate_commit_message(summaries)
-    if args.auto:
+    if args.commit:
         repo = Repo(args.repo)
-        repo.index.add(repo.untracked_files)
+        res = subprocess.run(
+            ["git", "apply", "--cached"],
+            input=diff_text + "\n",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=Path(args.repo).resolve(),
+            text=True,
+        )
+        if res.returncode != 0:
+            sys.exit(res.stdout)
         repo.index.commit(commit_message)
     else:
         print(commit_message)
 
 
-def get_diff(repopath, commit_sha=None):
+def get_diff(repopath, ref=None):
     """Returns a textual diff of either the working directory or a specific commit."""
     repo = Repo(repopath)
-    if commit_sha == None:
+    if ref is None:
         return repo.git.diff(ignore_blank_lines=True, ignore_all_space=True)
     else:
-        return repo.git.diff(
-            commit_sha + "~1", commit_sha, ignore_blank_lines=True, ignore_all_space=True
-        )
+        return repo.git.diff(ref + "~1", ref, ignore_blank_lines=True, ignore_all_space=True)
 
 
 def split_diff(diff_text):
