@@ -70,8 +70,16 @@ def main():
     parser.add_argument(
         "--commit", "-c", help="Git commit to use, otherwise uses working directory"
     )
+    parser.add_argument(
+        "--auto",
+        "-a",
+        help="Automatically commit the changes to the repo",
+        action="store_true",
+    )
 
     args = parser.parse_args()
+    if args.auto and args.commit is not None:
+        sys.exit("Cannot specify --auto and --commit at the same time")
 
     diff_text = get_diff(args.repo, args.commit)
     if diff_text.strip() == "":
@@ -80,7 +88,12 @@ def main():
     summaries = [summarize_diff(diff) for diff in diffs]
     # TODO sort summaries so that the most relevant (code) ones are first
     commit_message = generate_commit_message(summaries)
-    print(commit_message)
+    if args.auto:
+        repo = Repo(args.repo)
+        repo.index.add(repo.untracked_files)
+        repo.index.commit(commit_message)
+    else:
+        print(commit_message)
 
 
 def get_diff(repopath, commit_sha=None):
